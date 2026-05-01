@@ -1045,6 +1045,7 @@ function finishReg(){
   const name=document.getElementById('reg-name').value.trim();
   if(!name||!regClass||rPin.length!==4){showToast('Kuch missing hai!','error');return;}
   setP({name,classId:regClass,pin:rPin});
+  setSession(); // Registration ke baad bhi session set!
   showToast(`Welcome, ${name}! 🎉`,'success');
   setTimeout(()=>{initHome();SP('home-page');},500);
 }
@@ -1059,7 +1060,12 @@ function updLDots(err=false){
 }
 function checkLogin(){
   const p=getP();
-  if(lPin===p.pin){lPin='';updLDots();document.getElementById('l-err').textContent='';initHome();SP('home-page');}
+  if(lPin===p.pin){
+    lPin='';updLDots();
+    document.getElementById('l-err').textContent='';
+    setSession(); // 30 din tak login rahega!
+    initHome();SP('home-page');
+  }
   else{updLDots(true);document.getElementById('l-err').textContent='❌ Wrong PIN! Try again.';setTimeout(()=>{lPin='';updLDots();document.getElementById('l-err').textContent='';},900);}
 }
 
@@ -1514,6 +1520,7 @@ function clearHistory(){
 function resetAcc(){
   if(!confirm('Delete account? All data will be lost.'))return;
   ls.del('abc_profile');ls.del('abc_last');ls.del('abc_progress');ls.del('abc_bookmarks');
+  clearSession(); // Session bhi clear karo!
   showToast('Account deleted','error');
   setTimeout(()=>{rPin='';regClass=null;goStep(0);document.getElementById('reg-name').value='';document.getElementById('btn-s0').disabled=true;SP('welcome-page');},600);
 }
@@ -2110,14 +2117,56 @@ function seedData() {
 }
 
 // ============================================================
+// SESSION MANAGEMENT — Baar baar login na karna pade!
+// ============================================================
+const SESSION_KEY = 'abc_session_active';
+const SESSION_EXPIRY_KEY = 'abc_session_expiry';
+const SESSION_DURATION = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+
+function setSession() {
+  const expiry = Date.now() + SESSION_DURATION;
+  localStorage.setItem(SESSION_KEY, 'true');
+  localStorage.setItem(SESSION_EXPIRY_KEY, expiry.toString());
+}
+
+function isSessionValid() {
+  const active = localStorage.getItem(SESSION_KEY);
+  const expiry = localStorage.getItem(SESSION_EXPIRY_KEY);
+  if (!active || !expiry) return false;
+  if (Date.now() > parseInt(expiry)) {
+    // Session expired — clear it
+    localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_EXPIRY_KEY);
+    return false;
+  }
+  return true;
+}
+
+function clearSession() {
+  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(SESSION_EXPIRY_KEY);
+}
+
+// ============================================================
 // BOOT
 // ============================================================
 async function boot() {
-  await checkAPI(); // Check MongoDB API availability
-  if (!USE_API) seedData(); // Only seed if offline mode
+  await checkAPI();
+  if (!USE_API) seedData();
   initTheme();
   const p = getP();
+
+  // No profile = new user → Welcome page
   if (!p) { SP('welcome-page'); return; }
+
+  // Session valid = auto login → Home directly (no PIN needed!)
+  if (isSessionValid()) {
+    initHome();
+    SP('home-page');
+    return;
+  }
+
+  // Session expired = show PIN login
   document.getElementById('l-name').textContent = p.name;
   document.getElementById('l-chip').textContent = `📚 Class ${p.classId}`;
   SP('login-page');
